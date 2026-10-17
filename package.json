@@ -1,0 +1,29 @@
+{
+  "name": "ranvora",
+  "private": true,
+  "version": "0.1.0",
+  "description": "RANVORA - 誰も知らない世界が、生まれ続ける。自動生成3DアクションRPG (Phase 0)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "sim": "vite-node tools/simulate.ts",
+    "models": "node tools/blender/run-blender.mjs"
+  },
+  "dependencies": {
+    "rot-js": "^2.2.1",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^22.10.0",
+    "@types/three": "^0.186.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.7",
+    "vite-node": "^3.2.4",
+    "vitest": "^4.0.0"
+  }
+}

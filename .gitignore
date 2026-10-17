@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist-ssr/
+*.local
+
+# test output
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+coverage/
+
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# logs / temp
+*.log
+npm-debug.log*
+*.tmp
+*.bak
+*.blend1
+tmp/
