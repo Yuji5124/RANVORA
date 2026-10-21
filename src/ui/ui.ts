@@ -10,6 +10,7 @@ import { craftedModel, materialModel } from '../render/itemModels';
 import { Thumbnailer } from '../render/thumbnails';
 import { SPECIES, SPECIES_IDS, type Species } from '../sim/species';
 import { Minimap } from './minimap';
+import { expToNext, feedSourceOfItem, feedSourceOfMaterial, LINEAGE_COLORS, LINEAGE_LABELS, LINEAGES } from '../progression';
 
 type PanelName = 'inventory' | 'codex' | 'craft';
 
@@ -75,6 +76,10 @@ export class UI implements GameUI {
     game.inventory.onChange(() => {
       this.renderEquip();
       if (this.open === 'inventory' || this.open === 'craft') this.renderPanel();
+    });
+    game.arsenal.onChange(() => {
+      this.renderEquip();
+      if (this.open === 'inventory') this.renderPanel();
     });
     game.codex.onChange(() => {
       if (this.open === 'codex') this.renderPanel();
@@ -154,7 +159,9 @@ export class UI implements GameUI {
       const it = inv.get(id);
       return `<div class="slot ${it ? 'on' : ''}" title="${esc(it?.name ?? label)}">${it ? `<img src="${this.itemThumb(it)}">` : `<span>${label}</span>`}</div>`;
     };
-    this.equip.innerHTML = `${slot('武器', inv.equippedWeapon)}${slot('魔法', inv.equippedSpell)}${slot('お守り', inv.equippedCharm)}<div class="slot mats"><span>素材</span><b>${inv.totalMaterials()}</b></div>`;
+    const w = this.game.arsenal.current();
+    const weaponSlot = slot('武器', inv.equippedWeapon).replace('</div>', `<i class="lv" title="${esc(w.name)}">Lv${w.growth.level}</i></div>`);
+    this.equip.innerHTML = `${weaponSlot}${slot('魔法', inv.equippedSpell)}${slot('お守り', inv.equippedCharm)}<div class="slot mats"><span>素材</span><b>${inv.totalMaterials()}</b></div>`;
   }
 
   // ---------------------------------------------------------------- thumbnails
@@ -192,7 +199,8 @@ export class UI implements GameUI {
     const mats = MATERIAL_IDS.map((id) => {
       const n = inv.count(id);
       const m = MATERIALS[id];
-      return `<div class="card mat ${n ? '' : 'dim'}" title="${esc(m.description)}"><img src="${this.matThumb(id)}"><div><b>${m.name}</b><small>× ${n}</small></div></div>`;
+      const src = feedSourceOfMaterial(id);
+      return `<div class="card mat ${n ? '' : 'dim'}" title="${esc(m.description)}"><img src="${this.matThumb(id)}"><div><b>${m.name}</b><small>× ${n}</small><small class="feedinfo">+${src.exp} EXP・${src.lineage ? LINEAGE_LABELS[src.lineage] : '無'}</small>${n ? `<button class="feed" data-act="feed" data-id="${id}" title="手に持った武器に取り込む">取り込む</button>` : ''}</div></div>`;
     }).join('');
     const items = [...inv.items.values()]
       .map(({ item, count }) => {
@@ -203,11 +211,46 @@ export class UI implements GameUI {
             : item.category === 'junk'
               ? ''
               : `<button data-act="use" data-id="${item.id}">${equipped ? '外す' : '装備'}</button>`;
-        return `<div class="card item ${equipped ? 'equipped' : ''}"><img src="${this.itemThumb(item)}"><div><b>${esc(item.name)}</b><small>${categoryLabel(item.category)}・${ELEMENT_LABEL[item.element]} × ${count}</small><small>${statText(item)}</small></div>${action}</div>`;
+        const src = item.category === 'weapon' ? null : feedSourceOfItem(item);
+        const feedBtn = src ? `<button class="feed" data-act="feed" data-id="${item.id}" title="手に持った武器に取り込む（+${src.exp} EXP・${src.lineage ? LINEAGE_LABELS[src.lineage] : '無'}）">取り込む</button>` : '';
+        return `<div class="card item ${equipped ? 'equipped' : ''}"><img src="${this.itemThumb(item)}"><div><b>${esc(item.name)}</b><small>${categoryLabel(item.category)}・${ELEMENT_LABEL[item.element]} × ${count}</small><small>${statText(item)}</small></div>${action}${feedBtn}</div>`;
       })
       .join('');
-    return `<h3>素材</h3><div class="grid">${mats}</div><h3>合成したアイテム</h3><div class="list">${items || '<p class="muted">まだ何も合成していない。Cキーで合成してみよう。</p>'}</div>
-      <p class="muted">武器は攻撃力が、魔法は Q キーで発動、お守りは移動速度が上がる。</p>`;
+    return `${this.weaponHtml()}<h3>素材</h3><div class="grid">${mats}</div><h3>合成したアイテム</h3><div class="list">${items || '<p class="muted">まだ何も合成していない。Cキーで合成してみよう。</p>'}</div>
+      <p class="muted">武器は攻撃力が、魔法は Q キーで発動、お守りは移動速度が上がる。素材や合成アイテムを「取り込む」と、手に持った武器が経験値と系統を得る。</p>`;
+  }
+
+  /** The weapon in hand: level, EXP, stats, lineage shares and the next limit break. */
+  private weaponHtml(): string {
+    const g = this.game;
+    const w = g.arsenal.current();
+    const gr = w.growth;
+    const atCap = gr.level >= w.cap;
+    const need = expToNext(gr.level);
+    const pct = atCap ? 100 : Math.round((gr.exp / need) * 100);
+    const total = LINEAGES.reduce((t, l) => t + gr.points[l], 0);
+    const bars = LINEAGES.map((l) => {
+      const share = total ? (gr.points[l] / total) * 100 : 0;
+      return `<div class="prop"><span>${LINEAGE_LABELS[l]}</span><div class="bar"><i style="width:${share}%;background:${LINEAGE_COLORS[l]}"></i></div><b>${Math.round(share)}%</b></div>`;
+    }).join('');
+    const chk = g.arsenal.limitBreakCheck();
+    const cost = chk.cost
+      ? chk.cost
+          .map(({ id, qty }) => {
+            const have = g.inventory.count(id);
+            return `<span class="tag ${have < qty ? 'short' : ''}">${esc(MATERIALS[id as MaterialId]?.name ?? id)} ${have}/${qty}</span>`;
+          })
+          .join('')
+      : '';
+    const formText = gr.form ? `${LINEAGE_LABELS[gr.form.lineage]}に進化（段階 ${gr.form.stage}）` : `未進化（生まれは${LINEAGE_LABELS[gr.innate]}）`;
+    return `<h3>手に持った武器</h3><div class="weapon">
+      <div class="weapon-head"><b>${esc(w.name)}</b><span class="lvl">Lv ${gr.level}<small> / ${w.cap}</small></span></div>
+      <div class="xp"><div class="bar"><i style="width:${pct}%"></i></div><small>${atCap ? 'レベル上限。限界突破で上限が上がる' : `次のレベルまで ${need - gr.exp} EXP`}</small></div>
+      <p class="kv">攻撃 <b>${w.stats.attack}</b>　射程 ${w.stats.range}　会心 ${Math.round(w.stats.crit * 100)}%　${formText}</p>
+      <div class="props lineage">${bars}</div>
+      <div class="limit">${chk.cost ? `<span>次の限界突破</span>${cost}` : '<span>これ以上は限界突破できない</span>'}<button data-act="break" ${chk.ok ? '' : 'disabled'}>限界突破</button></div>
+      ${chk.ok || !chk.cost ? '' : `<p class="muted">${esc(chk.reason ?? '')}。取り込んだ系統のうち1つが50%を超えていると、突破のときに進化する。</p>`}
+    </div>`;
   }
 
   private craftHtml(): string {
@@ -318,6 +361,12 @@ export class UI implements GameUI {
         break;
       case 'use':
         g.useItem(el.dataset.id!);
+        break;
+      case 'feed':
+        g.feedWeapon(el.dataset.id!);
+        break;
+      case 'break':
+        g.limitBreakWeapon();
         break;
       case 'slot': {
         const id = el.dataset.id!;
