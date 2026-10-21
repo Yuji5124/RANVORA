@@ -11,7 +11,9 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "sim": "vite-node tools/simulate.ts",
-    "models": "node tools/blender/run-blender.mjs"
+    "models": "node tools/blender/run-blender.mjs",
+    "creatures": "node tools/blender/run-blender.mjs build_creatures.py && vite-node tools/blender/check-models.ts",
+    "models:check": "vite-node tools/blender/check-models.ts"
   },
   "dependencies": {
     "rot-js": "^2.2.1",
