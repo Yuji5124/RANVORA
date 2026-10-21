@@ -32,11 +32,16 @@ test('game boots, renders and has no fatal console errors', async ({ page }) => 
 test('hero moves with the keyboard', async ({ page }) => {
   await open(page, 'seed=12345');
   const before = await page.evaluate(() => ({ x: (window as any).__RANVORA.player.x, z: (window as any).__RANVORA.player.z }));
+  // Hold the keys until the hero has actually moved (state-based, not a fixed time):
+  // slow software rendering advances fewer frames per second.
+  const moved = (b: { x: number; z: number }) => {
+    const p = (window as any).__RANVORA.player;
+    return Math.hypot(p.x - b.x, p.z - b.z) > 0.5;
+  };
   await page.keyboard.down('KeyS');
-  await page.waitForTimeout(600);
-  await page.keyboard.up('KeyS');
   await page.keyboard.down('KeyD');
-  await page.waitForTimeout(600);
+  await page.waitForFunction(moved, before, { timeout: 30_000 });
+  await page.keyboard.up('KeyS');
   await page.keyboard.up('KeyD');
   const after = await page.evaluate(() => ({ x: (window as any).__RANVORA.player.x, z: (window as any).__RANVORA.player.z }));
   expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeGreaterThan(0.5);
@@ -119,12 +124,14 @@ test('research panel shows with ?debug=1 and controls the simulation', async ({ 
   await open(page, 'seed=12345&debug=1');
   await expect(page.locator('.debug')).toBeVisible();
   await page.locator('.debug [data-act=speed][data-speed="16"]').click();
-  await page.waitForTimeout(1000);
+  // Wait for simulated time to pass 5 s instead of a fixed real-time delay.
+  await page.waitForFunction(() => (window as any).__RANVORA.sim.time > 5, null, { timeout: 30_000 });
   const t1 = await page.evaluate(() => (window as any).__RANVORA.sim.time);
   expect(t1).toBeGreaterThan(5);
   await page.locator('.debug [data-act=pause]').click();
   const t2 = await page.evaluate(() => (window as any).__RANVORA.sim.time);
-  await page.waitForTimeout(500);
+  // While paused, the clock must not move across several rendered frames.
+  await page.evaluate(() => new Promise((r) => { let n = 0; const f = () => (++n >= 10 ? r(null) : requestAnimationFrame(f)); requestAnimationFrame(f); }));
   const t3 = await page.evaluate(() => (window as any).__RANVORA.sim.time);
   expect(t3).toBe(t2);
   await expect(page.locator('.debug .dbg-events .ev').first()).toBeVisible();
