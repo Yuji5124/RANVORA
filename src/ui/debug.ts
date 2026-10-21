@@ -8,7 +8,6 @@ import { SPECIES, SPECIES_IDS, STATE_LABELS, type CreatureState } from '../sim/s
 import { esc } from './ui';
 
 const SPEEDS = [0.5, 1, 2, 4, 8, 16];
-const SPECIES_COLOR = { slime: '#5fd0ff', deer: '#ffb35c', wolf: '#ff5a5a' } as const;
 
 export class DebugPanel {
   readonly el = document.createElement('div');
@@ -209,14 +208,14 @@ export class DebugPanel {
 
     // States table.
     const states = sim.stateCounts();
-    const rows = SPECIES_IDS.map((s) => {
+    const rows = SPECIES_IDS.filter((s) => sim.roster.includes(s)).map((s) => {
       const alive = sim.creatures.filter((c) => c.alive && c.species === s);
       const avg = (f: (c: (typeof alive)[number]) => number) => (alive.length ? alive.reduce((a, c) => a + f(c), 0) / alive.length : 0);
       const st = Object.entries(states)
         .filter(([k]) => k.startsWith(s + ':'))
         .map(([k, n]) => `${STATE_LABELS[k.split(':')[1] as CreatureState]} ${n}`)
         .join(' / ');
-      return `<tr><td style="color:${SPECIES_COLOR[s]}">${SPECIES[s].name}</td><td>${alive.length}</td><td>${avg((c) => c.hunger).toFixed(0)}</td><td>${avg((c) => c.speedTrait).toFixed(2)}</td><td>${avg((c) => c.generation).toFixed(1)}</td><td class="st">${st || '-'}</td></tr>`;
+      return `<tr><td style="color:${SPECIES[s].model.minimapColor}">${SPECIES[s].name}</td><td>${alive.length}</td><td>${avg((c) => c.hunger).toFixed(0)}</td><td>${avg((c) => c.speedTrait).toFixed(2)}</td><td>${avg((c) => c.generation).toFixed(1)}</td><td class="st">${st || '-'}</td></tr>`;
     }).join('');
     q('.dbg-states').innerHTML = `<h4>種ごとの状態</h4><table><tr><th>種</th><th>数</th><th>空腹</th><th>速度</th><th>世代</th><th>行動状態</th></tr>${rows}</table>`;
 
@@ -226,7 +225,7 @@ export class DebugPanel {
       .slice(0, 80)
       .map(
         (c) =>
-          `<button class="cr ${g.creatureView.selectedId === c.id ? 'on' : ''}" data-act="select" data-id="${c.id}" style="border-color:${SPECIES_COLOR[c.species]}">${c.id}${c.variant ? '★' : ''}${c.giant ? '◎' : ''}<small>${STATE_LABELS[c.state]}</small></button>`,
+          `<button class="cr ${g.creatureView.selectedId === c.id ? 'on' : ''}" data-act="select" data-id="${c.id}" style="border-color:${SPECIES[c.species].model.minimapColor}">${c.id}${c.variant ? '★' : ''}${c.giant ? '◎' : ''}<small>${STATE_LABELS[c.state]}</small></button>`,
       )
       .join('');
     q('.dbg-creatures').innerHTML = list;
@@ -288,7 +287,11 @@ export class DebugPanel {
     g.fillRect(0, 0, W, H);
     if (hist.length < 2) return;
     const data = hist.slice(-120);
-    const max = Math.max(10, ...data.map((d) => Math.max(d.slime, d.deer, d.wolf * 3)));
+    // Predators are few: drawn x3 so their curve is readable.
+    const roster = this.game.sim.roster;
+    const mul = (s: (typeof roster)[number]) => (SPECIES[s].role === 'predator' ? 3 : 1);
+    const val = (d: (typeof data)[number], s: (typeof roster)[number]) => (d.bySpecies[s] ?? 0) * mul(s);
+    const max = Math.max(10, ...data.map((d) => Math.max(...roster.map((s) => val(d, s)))));
     const line = (f: (d: (typeof data)[number]) => number, color: string) => {
       g.strokeStyle = color;
       g.lineWidth = 1.5;
@@ -301,12 +304,10 @@ export class DebugPanel {
       });
       g.stroke();
     };
-    line((d) => d.slime, SPECIES_COLOR.slime);
-    line((d) => d.deer, SPECIES_COLOR.deer);
-    line((d) => d.wolf * 3, SPECIES_COLOR.wolf);
+    for (const s of roster) line((d) => val(d, s), SPECIES[s].model.minimapColor);
     g.fillStyle = '#aaa';
     g.font = '10px sans-serif';
-    g.fillText('オオカミは×3表示', W - 92, 11);
+    g.fillText('捕食者は×3表示', W - 82, 11);
   }
 }
 

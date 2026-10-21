@@ -4,7 +4,7 @@
 // The final multiplier is the product, so the two axes combine without replacing each other.
 
 import type { Element } from '../items/synthesis';
-import type { Species } from '../sim/species';
+import { SPECIES, SPECIES_IDS, type Species } from '../sim/species';
 import type { Lineage } from '../progression/lineage';
 
 export const ADVANTAGE = 1.5;
@@ -37,9 +37,5 @@ export function elementMultiplier(element: Element | null, defender: Lineage | n
   return ELEMENT_VS_LINEAGE[element]?.[defender] ?? 1;
 }
 
-/** Lineage of the existing species. Read-only mapping: src/sim is not changed. */
-export const SPECIES_LINEAGE: Record<Species, Lineage> = {
-  slime: 'aqua',
-  deer: 'beast',
-  wolf: 'beast',
-};
+/** Lineage of each species, read from the species data (src/sim/species.ts). */
+export const SPECIES_LINEAGE = Object.fromEntries(SPECIES_IDS.map((s) => [s, SPECIES[s].lineage])) as Record<Species, Lineage>;

@@ -2,10 +2,15 @@
 // and falls back to primitives built from the same spec when a GLB is
 // missing. Both paths share names, origins, orientation and scale, so GLBs
 // can be swapped in at any time without code changes.
+//
+// Rigged creatures (tools/blender/build_creatures.py) also bring animation
+// clips (Idle / Move / Attack / Hit / Die). `clips(key)` is empty for
+// primitive fallbacks, and CreatureView then animates procedurally.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import specsJson from './modelSpecs.json';
 
 export interface PartSpec {
@@ -36,6 +41,10 @@ export const MODEL_KEYS = [
   'slime',
   'deer',
   'wolf',
+  'mossling',
+  'shardgolem',
+  'driftjelly',
+  'hornfang',
   'tree',
   'pine',
   'rock',
@@ -103,15 +112,23 @@ function applyCutout(mat: THREE.MeshLambertMaterial) {
   mat.customProgramCacheKey = () => 'ranvora-cutout';
 }
 
-export function getMaterial(color: string | THREE.Color, opts: { cutout?: boolean; emissive?: boolean } = {}) {
+/** emissive: true = glow at 0.8, or a number = glow intensity. opacity < 1 = see-through. */
+export function getMaterial(color: string | THREE.Color, opts: { cutout?: boolean; emissive?: boolean | number; opacity?: number } = {}) {
   const c = color instanceof THREE.Color ? color : new THREE.Color(color);
-  const key = `${c.getHexString()}|${opts.cutout ? 1 : 0}|${opts.emissive ? 1 : 0}`;
+  const opacity = opts.opacity !== undefined && opts.opacity < 0.99 ? Math.round(opts.opacity * 100) / 100 : 1;
+  const glow = opts.emissive === true ? 0.8 : typeof opts.emissive === 'number' ? Math.round(opts.emissive * 100) / 100 : 0;
+  const key = `${c.getHexString()}|${opts.cutout ? 1 : 0}|${glow}|${opacity}`;
   let m = materialCache.get(key);
   if (!m) {
     m = new THREE.MeshLambertMaterial({ color: c, flatShading: true });
-    if (opts.emissive) {
+    if (opacity < 1) {
+      m.transparent = true;
+      m.opacity = opacity;
+      m.depthWrite = false;
+    }
+    if (glow > 0) {
       m.emissive = c.clone();
-      m.emissiveIntensity = 0.8;
+      m.emissiveIntensity = glow;
     }
     if (opts.cutout) applyCutout(m);
     materialCache.set(key, m);
@@ -171,18 +188,21 @@ export function partSpec(key: string, name: string): PartSpec | undefined {
 export class ModelLibrary {
   readonly templates = new Map<ModelKey, THREE.Object3D>();
   readonly sources = new Map<ModelKey, 'glb' | 'primitive'>();
+  private readonly animations = new Map<ModelKey, THREE.AnimationClip[]>();
 
-  static async load(opts: { forcePrimitive?: boolean } = {}): Promise<ModelLibrary> {
+  /** forcePrimitive: no GLBs at all. missing: keys treated as if their GLB failed to load (tests). */
+  static async load(opts: { forcePrimitive?: boolean; missing?: string[] } = {}): Promise<ModelLibrary> {
     const lib = new ModelLibrary();
     const loader = new GLTFLoader();
     const base = import.meta.env.BASE_URL ?? './';
     await Promise.all(
       MODEL_KEYS.map(async (key) => {
-        if (!opts.forcePrimitive) {
+        if (!opts.forcePrimitive && !opts.missing?.includes(key)) {
           try {
             const gltf = await loader.loadAsync(`${base}models/${key}.glb`);
             lib.templates.set(key, adoptGlb(key, gltf.scene));
             lib.sources.set(key, 'glb');
+            if (gltf.animations.length) lib.animations.set(key, gltf.animations);
             return;
           } catch {
             // Missing or invalid GLB: fall back to primitives.
@@ -198,7 +218,13 @@ export class ModelLibrary {
   /** A new instance sharing geometry and materials with the template. */
   create(key: ModelKey): THREE.Object3D {
     const t = this.templates.get(key)!;
-    return t.clone(true);
+    // Skinned meshes need their own skeleton: a plain clone would share the template's bones.
+    return t.userData.skinned ? cloneSkinned(t) : t.clone(true);
+  }
+
+  /** Animation clips that came with the GLB (empty for primitives and static models). */
+  clips(key: ModelKey): THREE.AnimationClip[] {
+    return this.animations.get(key) ?? [];
   }
 
   template(key: ModelKey): THREE.Object3D {
@@ -209,20 +235,40 @@ export class ModelLibrary {
     const glb = [...this.sources.values()].filter((s) => s === 'glb').length;
     return `GLB ${glb}/${MODEL_KEYS.length}`;
   }
+
+  /** Per-key source and clip names, for tests and the debug panel. */
+  report(): Record<string, { source: 'glb' | 'primitive'; clips: string[] }> {
+    const out: Record<string, { source: 'glb' | 'primitive'; clips: string[] }> = {};
+    for (const k of MODEL_KEYS) out[k] = { source: this.sources.get(k) ?? 'primitive', clips: this.clips(k).map((c) => c.name) };
+    return out;
+  }
 }
 
-/** Normalises a loaded GLB scene: flat Lambert materials and spec flags. */
+/**
+ * Normalises a loaded GLB scene: flat Lambert materials and spec flags.
+ * Glowing (emissive) and see-through materials authored in Blender are kept.
+ */
 function adoptGlb(key: string, scene: THREE.Object3D): THREE.Object3D {
+  let skinned = false;
   scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
+    if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) {
+      skinned = true;
+      // Animated bounds change every frame; the bind-pose sphere would cull creatures mid-attack.
+      mesh.frustumCulled = false;
+    }
     const spec = partSpec(key, mesh.name);
     const src = mesh.material as THREE.MeshStandardMaterial;
     const color = src?.color ? src.color.clone() : new THREE.Color(spec?.color ?? '#ffffff');
-    mesh.material = getMaterial(color, { cutout: spec?.cutout, emissive: spec?.emissive });
+    // Blender emission -> glow intensity relative to the base colour (static models keep the spec flag).
+    const e = src?.emissive ? Math.max(src.emissive.r, src.emissive.g, src.emissive.b) : 0;
+    const glow = e > 0.02 ? Math.min(0.8, (0.8 * e) / Math.max(0.05, color.r, color.g, color.b)) : 0;
+    mesh.material = getMaterial(color, { cutout: spec?.cutout, emissive: spec?.emissive || glow || undefined, opacity: src?.opacity });
     mesh.castShadow = true;
     mesh.receiveShadow = true;
   });
+  scene.userData.skinned = skinned;
   scene.userData.source = 'glb';
   scene.name = key;
   return scene;

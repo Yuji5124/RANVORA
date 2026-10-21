@@ -56,6 +56,10 @@ export const KILL_EXP: Record<Species, number> = {
   slime: 6,
   deer: 10,
   wolf: 24,
+  mossling: 8,
+  shardgolem: 32,
+  driftjelly: 7,
+  hornfang: 20,
 };
 
 /** Evolved name parts: "<prefix><item name><suffix>". */

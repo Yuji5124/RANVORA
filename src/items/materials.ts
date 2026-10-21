@@ -23,7 +23,11 @@ export type MaterialId =
   | 'fire_stone'
   | 'water_stone'
   | 'wind_feather'
-  | 'slime_core';
+  | 'slime_core'
+  | 'moss_fiber'
+  | 'ore_core'
+  | 'aqua_gel'
+  | 'horn_chip';
 
 export interface MaterialDef {
   id: MaterialId;
@@ -55,6 +59,11 @@ export const MATERIALS: Record<MaterialId, MaterialDef> = {
   water_stone: { id: 'water_stone', name: '水の石', color: '#3f8cff', shape: 'orb', props: p(4, 4, 0, 10, 6, 1), description: '小川のほとりに転がる、水を湛えた石。' },
   wind_feather: { id: 'wind_feather', name: '風の羽', color: '#e8fff0', shape: 'feather', props: p(0, 0, 2, 1, 7, 8), description: '風に乗って草原に舞い落ちる羽。' },
   slime_core: { id: 'slime_core', name: 'スライムの核', color: '#66d4ff', shape: 'core', props: p(1, 2, 1, 7, 6, 10), description: 'スライムを倒すと残る。ぷにぷにと弾む。' },
+  // Phase 2B: dropped by the new species. Ordinary materials: they work in the property-based synthesis.
+  moss_fiber: { id: 'moss_fiber', name: '苔の繊維', color: '#6f9e45', shape: 'leaf', props: p(1, 1, 0, 7, 4, 5), description: 'モスリングの体を覆う苔。しっとりと水を含む。' },
+  ore_core: { id: 'ore_core', name: '鉱核', color: '#b48a52', shape: 'ingot', props: p(9, 9, 4, 0, 5, 0), description: 'シャードゴーレムを動かしていた重い核。ほのかに温かい。' },
+  aqua_gel: { id: 'aqua_gel', name: '水晶ゼリー', color: '#7fe8e0', shape: 'orb', props: p(0, 2, 0, 9, 5, 9), description: 'ドリフトジェリーの透き通った体液。よく弾む。' },
+  horn_chip: { id: 'horn_chip', name: '角片', color: '#3a3330', shape: 'gem', props: p(7, 3, 3, 1, 4, 3), description: 'ホーンファングの角の欠片。鋭く、わずかに魔力を帯びる。' },
 };
 
 export const MATERIAL_IDS = Object.keys(MATERIALS) as MaterialId[];

@@ -1,0 +1,10 @@
+{
+  "_comment": "Creature models built by tools/blender/build_creatures.py and checked by tools/blender/validate.ts. One entry per species with a rigged GLB. key = file name in public/models and SPECIES[..].model.key in src/sim/species.ts. recipe = tools/blender/creatures/<recipe>.py. scale = authored units -> tiles (kept as the armature's scale). top = allowed height of the top of the model in tiles after scaling. floats = hovering creature (its lowest point may be above the ground). Units: 1 = 1 tile, origin at the feet centre, front = +Z (glTF).",
+  "clips": ["Idle", "Move", "Attack", "Hit", "Die"],
+  "creatures": [
+    { "key": "mossling", "recipe": "mossling", "scale": 0.8, "top": [0.45, 0.75], "maxTriangles": 2500, "maxJoints": 16 },
+    { "key": "shardgolem", "recipe": "shardgolem", "scale": 0.85, "top": [1.1, 1.5], "maxTriangles": 2500, "maxJoints": 24 },
+    { "key": "driftjelly", "recipe": "driftjelly", "scale": 0.75, "top": [0.7, 1.0], "floats": true, "maxTriangles": 2500, "maxJoints": 20 },
+    { "key": "hornfang", "recipe": "hornfang", "scale": 0.9, "top": [0.75, 1.1], "maxTriangles": 2500, "maxJoints": 32 }
+  ]
+}

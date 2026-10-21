@@ -37,6 +37,10 @@ export const MATERIAL_LINEAGE: Record<MaterialId, Lineage> = {
   water_stone: 'aqua',
   slime_core: 'aqua',
   wind_feather: 'beast',
+  moss_fiber: 'flora',
+  ore_core: 'mineral',
+  aqua_gel: 'aqua',
+  horn_chip: 'beast',
 };
 
 /**

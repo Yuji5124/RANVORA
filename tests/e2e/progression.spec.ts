@@ -38,6 +38,7 @@ async function killOne(page: Page, species: string): Promise<string> {
 }
 
 test('kill -> weapon EXP -> feed -> save -> reload keeps the growth', async ({ page }) => {
+  test.setTimeout(150_000); // software rendering (CI, containers) needs more than the default 60 s
   const errors = await open(page, 'seed=12345');
   await page.evaluate(() => localStorage.removeItem('ranvora.save.v1'));
 

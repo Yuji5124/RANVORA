@@ -150,7 +150,7 @@ export class UI implements GameUI {
     this.hearts.innerHTML = h;
     const tod = g.sim.timeOfDay;
     const icon = g.sim.isNight ? '🌙' : tod < 0.3 ? '🌅' : '☀️';
-    this.info.innerHTML = `${icon} ${formatSimTime(g.sim.time)}　シード <b>${g.seed}</b>　<span class="pop">スライム ${g.sim.count('slime')} ・ シカ ${g.sim.count('deer')} ・ オオカミ ${g.sim.count('wolf')}</span>`;
+    this.info.innerHTML = `${icon} ${formatSimTime(g.sim.time)}　シード <b>${g.seed}</b>　<span class="pop">${g.sim.roster.map((s) => `${SPECIES[s].name} ${g.sim.count(s)}`).join(' ・ ')}</span>`;
   }
 
   private renderEquip() {
@@ -311,7 +311,7 @@ export class UI implements GameUI {
             <p class="muted">発見：${date(e)}（シード ${e.seed}）</p></div></div>`;
         })
         .join('');
-      const missing = SPECIES_IDS.filter((s) => !cx.has(`creature:${s}`));
+      const missing = SPECIES_IDS.filter((s) => this.game.sim.roster.includes(s) && !cx.has(`creature:${s}`));
       body += missing.map(() => `<div class="entry unknown"><div class="q">？</div><div><h3>？？？</h3><p class="muted">まだ見つけていない生き物</p></div></div>`).join('');
     } else if (this.codexTab === 'material') {
       body = MATERIAL_IDS.map((id) => {

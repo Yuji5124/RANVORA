@@ -5,6 +5,10 @@ Builds every model described in src/render/modelSpecs.json with bmesh,
 adds a small bevel to boxes, and exports one GLB per model to
 public/models/<key>.glb.
 
+Rigged creatures listed in tools/blender/creatures/creatures.json are skipped:
+their modelSpecs.json entry is only the in-game primitive fallback, and their
+GLB comes from build_creatures.py (npm run creatures).
+
 Conventions (shared with src/render/models.ts):
   * 1 unit = 1 tile, origin at the feet centre
   * models face +Z in glTF / Three.js (= -Y in Blender)
@@ -171,6 +175,9 @@ def main():
         only = set(argv[argv.index("--only") + 1].split(","))
     with open(SPEC_PATH, encoding="utf-8") as f:
         specs = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "creatures", "creatures.json"), encoding="utf-8") as f:
+        rigged = {c["key"] for c in json.load(f)["creatures"]}
+    specs = {k: v for k, v in specs.items() if k not in rigged}
     os.makedirs(OUT_DIR, exist_ok=True)
     # Order requested by the Phase 0 brief first, the rest after.
     order = ["hero", "slime", "deer", "wolf", "tree", "rock", "house", "chest"]

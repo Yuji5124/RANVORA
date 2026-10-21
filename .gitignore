@@ -35,3 +35,7 @@ npm-debug.log*
 *.bak
 *.blend1
 tmp/
+
+# Blender tool output (logs, caches)
+tools/blender/out/
+__pycache__/
