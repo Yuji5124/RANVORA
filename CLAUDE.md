@@ -17,6 +17,9 @@ RANVORA の核は「開発者にも予想できない発見が生まれる世界
 - 他のプロジェクト（lowpoly-starter など）のコード・座標・道路・建物を持ち込まない。参考にした技術は出典を docs/ に書く。
 - 既存のテストと GitHub Pages の公開を壊さない。`main` に直接 push しない。
 - 戦闘の乱数は `Rng.stream(seed, 'combat')`。保存・UI・武器成長は生態系（`src/sim/`）の乱数もイベントログも使わない（`fingerprint()` にイベント数が入るため）。
+- 生態系には 2 つのモードがある。旧 3 種だけの `new Simulation(world, { roster: CLASSIC_SPECIES })`（`?ecosystem=classic`）は Phase 2B 以前と同じ指紋を出す。全種の拡張モード（既定）は自分の基準値を持つ。旧 3 種の振る舞いを変える変更はしない。
+- 種の違いはデータ（`src/sim/species.ts` の `SpeciesDef`）で書く。`simulation.ts` に種の名前で分ける処理を増やさない。
+- アニメーションは表示だけ。クリップの終了やミキサーのイベントで生態系の結果を決めない。
 
 ## 属性の扱い
 
@@ -39,7 +42,8 @@ src/combat/       戦闘の共通処理（相性・扇形の当たり判定・�
 src/codex/ src/render/ src/game/ src/ui/   図鑑・描画・ゲームループ・UI
   src/game/arsenal.ts  手に持った武器と成長記録（撃破の経験値は1体1回、取り込みは全部成功か何もしないか）
   src/game/save.ts     進行状況の保存（キー ranvora.save.v1。図鑑 ranvora.codex.v1 とは別。壊れたデータは .corrupt に退避）
-tools/blender/    Blender での GLB 生成
+tools/blender/    Blender での GLB 生成。静的モデルは build_models.py、ボーンつき生き物は build_creatures.py。
+                  GLB の検査は validate.ts（npm run models:check）。手順は docs/blender-creatures.md
 tests/unit tests/e2e
 ```
 
