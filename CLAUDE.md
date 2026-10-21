@@ -16,6 +16,7 @@ RANVORA の核は「開発者にも予想できない発見が生まれる世界
 - 既存の「レシピのない合成」（`src/items/synthesis.ts`）を置き換えない。特別な合成は別の仕組みとして足す。
 - 他のプロジェクト（lowpoly-starter など）のコード・座標・道路・建物を持ち込まない。参考にした技術は出典を docs/ に書く。
 - 既存のテストと GitHub Pages の公開を壊さない。`main` に直接 push しない。
+- 戦闘の乱数は `Rng.stream(seed, 'combat')`。保存・UI・武器成長は生態系（`src/sim/`）の乱数もイベントログも使わない（`fingerprint()` にイベント数が入るため）。
 
 ## 属性の扱い
 
@@ -36,6 +37,8 @@ src/items/        素材・レシピのない合成・持ち物
 src/progression/  武器の成長（経験値・レベル・限界突破・系統による進化・武器合成）。描画なし・決定的
 src/combat/       戦闘の共通処理（相性・扇形の当たり判定・ダメージ・ドロップ抽選）。描画なし
 src/codex/ src/render/ src/game/ src/ui/   図鑑・描画・ゲームループ・UI
+  src/game/arsenal.ts  手に持った武器と成長記録（撃破の経験値は1体1回、取り込みは全部成功か何もしないか）
+  src/game/save.ts     進行状況の保存（キー ranvora.save.v1。図鑑 ranvora.codex.v1 とは別。壊れたデータは .corrupt に退避）
 tools/blender/    Blender での GLB 生成
 tests/unit tests/e2e
 ```

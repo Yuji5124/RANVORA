@@ -28,6 +28,8 @@ async function boot() {
   game.run();
   loading?.remove();
   ui.toast('ようこそ、RANVORAへ。世界はもう動き始めている。', 'good');
+  if (game.loadResult.status === 'ok') ui.toast(`前回の続きから（${game.arsenal.current().name} Lv${game.arsenal.current().growth.level}）`, 'info');
+  if (game.loadResult.status === 'corrupt') ui.toast('保存データが壊れていたため、新しく始めました（元のデータは別に残しています）', 'warn');
 
   // Handle for automated tests and research in the console.
   (window as unknown as { __RANVORA: unknown }).__RANVORA = {
@@ -39,6 +41,7 @@ async function boot() {
       return game.player;
     },
     inventory: game.inventory,
+    arsenal: game.arsenal,
     codex: game.codex,
     worldFingerprint: () => worldFingerprint(game.world),
     models: lib.summary(),

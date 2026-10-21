@@ -653,3 +653,93 @@ code {
     height: 45vh;
   }
 }
+
+/* Weapon growth (inventory panel) ----------------------------------- */
+.slot .lv {
+  position: absolute;
+  bottom: 3px;
+  right: 5px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.weapon {
+  background: var(--panel-2);
+  border: 1px solid var(--gold);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.weapon-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.weapon-head b {
+  font-size: 16px;
+}
+.weapon-head .lvl {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold);
+  font-weight: 700;
+}
+.weapon-head .lvl small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.weapon .xp {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.weapon .xp .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.weapon .xp .bar i {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+}
+.weapon .xp small {
+  color: var(--muted);
+}
+.weapon .kv {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.weapon .limit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.weapon .limit > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.weapon .limit button {
+  margin-left: auto;
+}
+.tag.short {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.card .feedinfo {
+  font-size: 11px;
+}
+.panel .card button.feed {
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.panel .card.mat button.feed {
+  align-self: flex-start;
+  margin-top: 4px;
+}

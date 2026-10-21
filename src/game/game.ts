@@ -17,6 +17,10 @@ import { SPECIES, type Species } from '../sim/species';
 import { generateWorld } from '../world/generator';
 import { Tile, tileIndex, inBounds, type World } from '../world/types';
 import { Player } from './player';
+import { Arsenal, type KillReward } from './arsenal';
+import { restore, SaveStore, snapshot, type LoadResult } from './save';
+import { computeDamage, lineageMultiplier, SPECIES_LINEAGE } from '../combat';
+import { LINEAGE_LABELS } from '../progression';
 
 export interface GameUI {
   toast(msg: string, kind?: 'info' | 'good' | 'warn' | 'rare'): void;
@@ -43,6 +47,12 @@ export class Game {
   readonly player: Player;
   readonly inventory = new Inventory();
   readonly codex = new Codex();
+  /** Weapon in hand and its growth (EXP, level, lineage). */
+  readonly arsenal = new Arsenal(this.inventory);
+  /** Progress save (inventory + weapon growth). The codex keeps its own storage. */
+  readonly saves = new SaveStore();
+  readonly loadResult: LoadResult;
+  lastSaveOk = true;
   world!: World;
   sim!: Simulation;
   ui: GameUI | null = null;
@@ -68,6 +78,9 @@ export class Game {
   private spellCooldown = 0;
   private discoveryTimer = 0;
   private playerRng = new Rng(1);
+  /** Damage rolls (critical hits). Separate stream: never shifts the ecosystem's streams. */
+  private combatRng = new Rng(1);
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribe: (() => void) | null = null;
 
   constructor(
@@ -108,6 +121,13 @@ export class Game {
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
+    // Restore progress before anything listens, then save whenever it changes.
+    this.loadResult = this.saves.load();
+    if (this.loadResult.data) this.arsenal.book = restore(this.loadResult.data, this.inventory);
+    this.inventory.onChange(() => this.scheduleSave());
+    this.arsenal.onChange(() => this.scheduleSave());
+    window.addEventListener('pagehide', () => this.saveNow());
+
     this.renderer.domElement.addEventListener('wheel', (e) => {
       this.zoom = THREE.MathUtils.clamp(this.zoom + Math.sign(e.deltaY) * 1.2, 8, 30);
       this.resize();
@@ -124,6 +144,8 @@ export class Game {
     this.world = generateWorld(seed);
     this.sim = new Simulation(this.world);
     this.playerRng = Rng.stream(seed, 'player');
+    this.combatRng = Rng.stream(seed, 'combat');
+    this.arsenal.resetWorld();
     this.worldView.build(this.world);
     this.creatureView.clear();
     this.creatureView.selectedId = null;
@@ -339,13 +361,15 @@ export class Game {
   // Actions
 
   private weaponStats() {
-    const w = this.inventory.get(this.inventory.equippedWeapon);
-    return { dmg: w?.stats.attack ?? 1.5, range: w?.stats.range ?? 1.15 };
+    // Grown stats of the weapon in hand (starter sword at Lv1 = the old 1.5 / 1.15).
+    const w = this.arsenal.current();
+    // Lineage affinity is earned by evolving: unevolved weapons hit every lineage at x1.
+    return { dmg: w.stats.attack, range: w.stats.range, crit: w.stats.crit, lineage: w.growth.form?.lineage ?? null };
   }
 
   private resolveAttack() {
     const p = this.player;
-    const { dmg, range } = this.weaponStats();
+    const { dmg, range, crit, lineage } = this.weaponStats();
     const f = p.facing;
     let hitSomething = false;
     for (const c of this.sim.creatures) {
@@ -355,12 +379,13 @@ export class Game {
       const d = Math.hypot(dx, dz);
       if (d > range + 0.25 * c.scale || (d > 0.35 && (dx * f.x + dz * f.z) / d < 0.25)) continue;
       hitSomething = true;
-      const drops = this.sim.damageCreature(c.id, dmg, { x: p.x, z: p.z });
+      const hit = computeDamage({ attack: dmg, crit, spread: 0, multiplier: lineageMultiplier(lineage, SPECIES_LINEAGE[c.species]) }, this.combatRng);
+      const drops = this.sim.damageCreature(c.id, hit.damage, { x: p.x, z: p.z });
       for (const m of drops) {
         const a = this.playerRng.range(0, Math.PI * 2);
         this.sim.addPickup(m, c.x + Math.cos(a) * 0.3, c.z + Math.sin(a) * 0.3);
       }
-      if (drops.length) this.ui?.toast(`${SPECIES[c.species].name}を倒した`, 'info');
+      if (!c.alive) this.onWeaponKill(this.arsenal.rewardKill(c.id, c.species), SPECIES[c.species].name);
     }
     if (hitSomething) return;
     // Gather from a tree / rock in front.
@@ -380,6 +405,57 @@ export class Game {
     else if (obj.kind === 'ore') mat = this.playerRng.chance(0.6) ? 'iron' : 'stone';
     if (mat) this.giveMaterial(mat);
     this.spawnEffect(fp.x, 0.5, fp.z, '#ffffff', 0.25, 0.25);
+  }
+
+  private onWeaponKill(r: KillReward | null, name: string) {
+    if (!r) return;
+    const v = r.view;
+    this.ui?.toast(`${name}を倒した（${v.name} +${r.exp} EXP）`, 'info');
+    if (r.levels > 0) this.ui?.toast(`${v.name} が Lv${v.growth.level} に上がった（攻撃 ${v.stats.attack}）`, 'good');
+    if (r.reachedCap) this.ui?.toast(`Lv${v.cap} に到達。持ち物（I）から限界突破できる`, 'rare');
+  }
+
+  /** Feeds a material or crafted item to the weapon in hand (持ち物 → 取り込む). */
+  feedWeapon(id: string): boolean {
+    const r = this.arsenal.feed(id, 1);
+    if (!r.ok) {
+      this.ui?.toast(r.reason, 'warn');
+      return false;
+    }
+    const v = r.view;
+    this.ui?.toast(`${v.name} が取り込んだ（+${r.exp} EXP・${LINEAGE_LABELS[v.lineage]}寄り）`, 'good');
+    if (r.levels > 0) this.ui?.toast(`${v.name} が Lv${v.growth.level} に上がった（攻撃 ${v.stats.attack}）`, 'good');
+    this.spawnEffect(this.player.x, 0.5, this.player.z, '#e2b13c', 0.9, 0.4);
+    return true;
+  }
+
+  limitBreakWeapon(): boolean {
+    const r = this.arsenal.limitBreak();
+    if (!r.ok) {
+      this.ui?.toast(r.reason, 'warn');
+      return false;
+    }
+    this.ui?.toast(r.evolved ? `${r.view.name} に進化した！（上限 Lv${r.cap}）` : `限界突破した（上限 Lv${r.cap}）`, 'rare');
+    this.spawnEffect(this.player.x, 0.6, this.player.z, '#ffd84a', 1.6, 0.6);
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Save
+
+  private scheduleSave() {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => this.saveNow(), 400);
+  }
+
+  /** Writes progress now. On failure the previous save is left untouched. */
+  saveNow(): boolean {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    const ok = this.saves.save(snapshot(this.inventory, this.arsenal.book));
+    if (!ok && this.lastSaveOk) this.ui?.toast('進行状況を保存できなかった（前回の保存は残っている）', 'warn');
+    this.lastSaveOk = ok;
+    return ok;
   }
 
   giveMaterial(id: MaterialId, silent = false) {
