@@ -188,5 +188,61 @@
       { "name": "B3", "shape": "sphere", "radius": 0.05, "detail": 0, "pos": [0.02, 0.46, -0.14], "color": "#ff4a64" },
       { "name": "B4", "shape": "sphere", "radius": 0.05, "detail": 0, "pos": [0.26, 0.28, -0.06], "color": "#e0304a" }
     ]
+  },
+  "mossling": {
+    "parts": [
+      { "name": "LegFL", "shape": "box", "size": [0.07, 0.1, 0.07], "pos": [-0.09, 0.1, 0.06], "offset": [0, -0.05, 0], "color": "#5a4330" },
+      { "name": "LegFR", "shape": "box", "size": [0.07, 0.1, 0.07], "pos": [0.09, 0.1, 0.06], "offset": [0, -0.05, 0], "color": "#5a4330" },
+      { "name": "LegBL", "shape": "box", "size": [0.07, 0.1, 0.07], "pos": [-0.09, 0.1, -0.06], "offset": [0, -0.05, 0], "color": "#5a4330" },
+      { "name": "LegBR", "shape": "box", "size": [0.07, 0.1, 0.07], "pos": [0.09, 0.1, -0.06], "offset": [0, -0.05, 0], "color": "#5a4330" },
+      { "name": "Body", "shape": "sphere", "radius": 0.22, "detail": 1, "scale": [1, 0.9, 1], "pos": [0, 0, 0], "offset": [0, 0.28, 0], "color": "#5e8f3e" },
+      { "name": "Belly", "parent": "Body", "shape": "sphere", "radius": 0.13, "detail": 1, "scale": [1, 1, 0.5], "pos": [0, 0.24, 0.14], "color": "#c9d99a" },
+      { "name": "Leaf", "parent": "Body", "shape": "cyl", "radiusTop": 0, "radiusBottom": 0.1, "height": 0.16, "segments": 5, "pos": [0, 0.52, 0], "rot": [0, 0, 12], "color": "#8cc456" },
+      { "name": "Bud", "parent": "Body", "shape": "sphere", "radius": 0.04, "detail": 0, "pos": [0.03, 0.6, 0], "color": "#ffe27a", "emissive": true },
+      { "name": "EyeL", "parent": "Body", "shape": "box", "size": [0.04, 0.06, 0.02], "pos": [-0.07, 0.32, 0.2], "color": "#1b1d22" },
+      { "name": "EyeR", "parent": "Body", "shape": "box", "size": [0.04, 0.06, 0.02], "pos": [0.07, 0.32, 0.2], "color": "#1b1d22" }
+    ]
+  },
+  "shardgolem": {
+    "parts": [
+      { "name": "LegFL", "shape": "box", "size": [0.2, 0.4, 0.2], "pos": [-0.2, 0.4, 0.0], "offset": [0, -0.2, 0], "color": "#4b4744" },
+      { "name": "LegBR", "shape": "box", "size": [0.2, 0.4, 0.2], "pos": [0.2, 0.4, 0.0], "offset": [0, -0.2, 0], "color": "#4b4744" },
+      { "name": "Body", "shape": "box", "size": [0.78, 0.62, 0.48], "pos": [0, 0.72, 0], "color": "#77716a", "cutout": true },
+      { "name": "Moss", "parent": "Body", "shape": "box", "size": [0.6, 0.06, 0.4], "pos": [0, 0.33, 0], "color": "#4f6e33" },
+      { "name": "Head", "parent": "Body", "shape": "box", "size": [0.34, 0.26, 0.3], "pos": [0, 0.42, 0.06], "color": "#77716a" },
+      { "name": "EyeL", "parent": "Head", "shape": "box", "size": [0.06, 0.04, 0.02], "pos": [-0.08, 0.02, 0.16], "color": "#ffcf6a", "emissive": true },
+      { "name": "EyeR", "parent": "Head", "shape": "box", "size": [0.06, 0.04, 0.02], "pos": [0.08, 0.02, 0.16], "color": "#ffcf6a", "emissive": true },
+      { "name": "ArmL", "parent": "Body", "shape": "box", "size": [0.18, 0.6, 0.2], "pos": [-0.5, 0.15, 0.04], "offset": [0, -0.26, 0], "color": "#4b4744" },
+      { "name": "ArmR", "parent": "Body", "shape": "box", "size": [0.18, 0.6, 0.2], "pos": [0.5, 0.15, 0.04], "offset": [0, -0.26, 0], "color": "#4b4744" },
+      { "name": "Crystal", "parent": "Body", "shape": "cyl", "radiusTop": 0, "radiusBottom": 0.1, "height": 0.36, "segments": 5, "pos": [0.26, 0.42, -0.1], "rot": [-12, 0, -18], "color": "#49e6d6", "emissive": true },
+      { "name": "Crystal2", "parent": "Body", "shape": "cyl", "radiusTop": 0, "radiusBottom": 0.07, "height": 0.24, "segments": 5, "pos": [-0.22, 0.38, -0.12], "rot": [-10, 0, 20], "color": "#49e6d6", "emissive": true }
+    ]
+  },
+  "driftjelly": {
+    "parts": [
+      { "name": "Body", "shape": "sphere", "radius": 0.24, "detail": 1, "scale": [1, 0.75, 1], "pos": [0, 0, 0], "offset": [0, 0.62, 0], "color": "#6fd8e0" },
+      { "name": "Core", "parent": "Body", "shape": "sphere", "radius": 0.1, "detail": 0, "pos": [0, 0.62, 0], "color": "#9ffff4", "emissive": true },
+      { "name": "EyeL", "parent": "Body", "shape": "box", "size": [0.04, 0.05, 0.02], "pos": [-0.07, 0.62, 0.22], "color": "#1b1d22" },
+      { "name": "EyeR", "parent": "Body", "shape": "box", "size": [0.04, 0.05, 0.02], "pos": [0.07, 0.62, 0.22], "color": "#1b1d22" },
+      { "name": "TentA", "parent": "Body", "shape": "cyl", "radiusTop": 0.03, "radiusBottom": 0.01, "height": 0.36, "segments": 5, "pos": [0.1, 0.5, 0], "offset": [0, -0.18, 0], "color": "#4fb8c8" },
+      { "name": "TentB", "parent": "Body", "shape": "cyl", "radiusTop": 0.03, "radiusBottom": 0.01, "height": 0.4, "segments": 5, "pos": [-0.05, 0.5, 0.09], "offset": [0, -0.2, 0], "color": "#4fb8c8" },
+      { "name": "TentC", "parent": "Body", "shape": "cyl", "radiusTop": 0.03, "radiusBottom": 0.01, "height": 0.34, "segments": 5, "pos": [-0.05, 0.5, -0.09], "offset": [0, -0.17, 0], "color": "#4fb8c8" }
+    ]
+  },
+  "hornfang": {
+    "parts": [
+      { "name": "LegFL", "shape": "box", "size": [0.09, 0.36, 0.09], "pos": [-0.12, 0.36, 0.28], "offset": [0, -0.18, 0], "color": "#282e3b" },
+      { "name": "LegFR", "shape": "box", "size": [0.09, 0.36, 0.09], "pos": [0.12, 0.36, 0.28], "offset": [0, -0.18, 0], "color": "#282e3b" },
+      { "name": "LegBL", "shape": "box", "size": [0.09, 0.36, 0.09], "pos": [-0.12, 0.36, -0.28], "offset": [0, -0.18, 0], "color": "#282e3b" },
+      { "name": "LegBR", "shape": "box", "size": [0.09, 0.36, 0.09], "pos": [0.12, 0.36, -0.28], "offset": [0, -0.18, 0], "color": "#282e3b" },
+      { "name": "Body", "shape": "box", "size": [0.32, 0.28, 0.84], "pos": [0, 0.5, 0], "color": "#3d4658" },
+      { "name": "Mane", "parent": "Body", "shape": "box", "size": [0.38, 0.34, 0.26], "pos": [0, 0.05, 0.26], "color": "#e6decb" },
+      { "name": "Tail", "parent": "Body", "shape": "box", "size": [0.08, 0.08, 0.34], "pos": [0, 0.08, -0.42], "offset": [0, 0, -0.15], "rot": [20, 0, 0], "color": "#3d4658" },
+      { "name": "Head", "parent": "Body", "shape": "box", "size": [0.24, 0.2, 0.26], "pos": [0, 0.12, 0.5], "color": "#3d4658" },
+      { "name": "Snout", "parent": "Head", "shape": "box", "size": [0.13, 0.09, 0.16], "pos": [0, -0.04, 0.18], "color": "#6a7385" },
+      { "name": "Horn", "parent": "Head", "shape": "cyl", "radiusTop": 0, "radiusBottom": 0.05, "height": 0.26, "segments": 5, "pos": [0, 0.2, 0.04], "rot": [35, 0, 0], "color": "#ffb347", "emissive": true },
+      { "name": "EyeL", "parent": "Head", "shape": "box", "size": [0.04, 0.03, 0.02], "pos": [-0.07, 0.04, 0.13], "color": "#5ff2e2", "emissive": true },
+      { "name": "EyeR", "parent": "Head", "shape": "box", "size": [0.04, 0.03, 0.02], "pos": [0.07, 0.04, 0.13], "color": "#5ff2e2", "emissive": true }
+    ]
   }
 }

@@ -1,20 +1,26 @@
 // Guards for the research base: values captured from main at 685c4e4 before Phase 1.
 // If one of these fails, an existing system changed behaviour. Update the golden
 // values only for an intended change, and record why in the commit message.
+//
+// Phase 2B added species. The classic roster (slime / deer / wolf) must still replay the
+// old history exactly, so the old goldens are checked with { roster: CLASSIC_SPECIES }.
+// The extended roster (all species) has its own baseline below; it is not forced to
+// match the old values.
 
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/rng';
 import { materialIngredient, synthesize, type CraftedItem } from '../../src/items/synthesis';
 import { Inventory } from '../../src/items/inventory';
 import { Simulation } from '../../src/sim/simulation';
+import { CLASSIC_SPECIES } from '../../src/sim/species';
 import { generateWorld } from '../../src/world/generator';
 import { ATTACK_ARCS, computeDamage, inArc, lineageMultiplier, rollDrops, SPECIES_LINEAGE } from '../../src/combat';
 import { addExp, feed, GrowthBook, growthStats, KILL_EXP, limitBreak, weaponLineage } from '../../src/progression';
 
 describe('existing systems are unchanged (golden values from main 685c4e4)', () => {
-  it('ecosystem fingerprints after 1800 ticks', () => {
+  it('ecosystem fingerprints after 1800 ticks (classic roster)', () => {
     const fp = (seed: number) => {
-      const sim = new Simulation(generateWorld(seed));
+      const sim = new Simulation(generateWorld(seed), { roster: CLASSIC_SPECIES });
       for (let i = 0; i < 1800; i++) sim.step();
       return sim.fingerprint();
     };
@@ -80,9 +86,47 @@ describe('same seed + same operations = same result', () => {
   });
 
   it('combat and growth do not disturb the ecosystem streams', () => {
-    const sim = new Simulation(generateWorld(12345));
+    const sim = new Simulation(generateWorld(12345), { roster: CLASSIC_SPECIES });
     playScript(12345);
     for (let i = 0; i < 1800; i++) sim.step();
     expect(sim.fingerprint()).toBe(368528957);
   });
 });
+
+describe('extended ecosystem (all species, Phase 2B)', () => {
+  const run = (seed: number, ticks: number) => {
+    const sim = new Simulation(generateWorld(seed));
+    for (let i = 0; i < ticks; i++) sim.step();
+    return sim;
+  };
+
+  it('replays identically for the same seed', () => {
+    const a = run(4242, 3000);
+    const b = run(4242, 3000);
+    expect(a.fingerprint()).toBe(b.fingerprint());
+    expect(a.events.events.map((e) => e.message)).toEqual(b.events.events.map((e) => e.message));
+    expect(a.creatures.map((c) => [c.id, c.x, c.z, c.hp, c.state])).toEqual(b.creatures.map((c) => [c.id, c.x, c.z, c.hp, c.state]));
+  });
+
+  it('differs from the classic roster (new species really take part)', () => {
+    const classic = new Simulation(generateWorld(12345), { roster: CLASSIC_SPECIES });
+    for (let i = 0; i < 1800; i++) classic.step();
+    expect(run(12345, 1800).fingerprint()).not.toBe(classic.fingerprint());
+  });
+
+  it('baseline fingerprints after 1800 ticks (Phase 2B)', () => {
+    // Captured when the four species were added. Change only for an intended ecosystem change.
+    expect(run(12345, 1800).fingerprint()).toBe(EXTENDED_GOLDEN[12345]);
+    expect(run(4242, 1800).fingerprint()).toBe(EXTENDED_GOLDEN[4242]);
+    expect(run(777, 1800).fingerprint()).toBe(EXTENDED_GOLDEN[777]);
+  });
+
+  it('combat and growth do not disturb the extended ecosystem either', () => {
+    const sim = new Simulation(generateWorld(12345));
+    playScript(12345);
+    for (let i = 0; i < 1800; i++) sim.step();
+    expect(sim.fingerprint()).toBe(EXTENDED_GOLDEN[12345]);
+  });
+});
+
+const EXTENDED_GOLDEN: Record<number, number> = { 12345: 1735748745, 4242: 932660494, 777: 3632503797 };

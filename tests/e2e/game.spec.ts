@@ -24,7 +24,7 @@ test('game boots, renders and has no fatal console errors', async ({ page }) => 
   });
   expect(info.seed).toBe(12345);
   expect(info.creatures).toBeGreaterThan(10);
-  expect(info.models).toMatch(/GLB \d+\/18/);
+  expect(info.models).toMatch(/GLB \d+\/22/); // 18 models + 4 rigged creatures (Phase 2B)
   await page.waitForTimeout(1500);
   expect(errors).toEqual([]);
 });

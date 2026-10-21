@@ -13,9 +13,12 @@ async function boot() {
   const debug = params.get('debug') === '1';
   const loading = document.getElementById('loading');
 
-  const lib = await ModelLibrary.load({ forcePrimitive: params.get('models') === 'primitive' });
+  // ?models=primitive: no GLBs. ?missingModels=hornfang,mossling: act as if those GLBs failed to load.
+  const missing = (params.get('missingModels') ?? '').split(',').filter(Boolean);
+  const lib = await ModelLibrary.load({ forcePrimitive: params.get('models') === 'primitive', missing });
   const app = document.getElementById('app')!;
   const game = new Game(app, lib);
+  if (params.get('ecosystem') === 'classic') game.ecosystem = 'classic';
   game.start(seed);
   const ui = new UI(game, app);
   game.ui = ui;
@@ -45,6 +48,9 @@ async function boot() {
     codex: game.codex,
     worldFingerprint: () => worldFingerprint(game.world),
     models: lib.summary(),
+    modelReport: () => lib.report(),
+    clipOf: (id: string) => game.creatureView.clipOf(id),
+    rigStats: () => game.creatureView.rigStats(),
   };
 }
 

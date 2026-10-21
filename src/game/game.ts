@@ -13,7 +13,7 @@ import { craftedModel, materialModel } from '../render/itemModels';
 import { cutoutUniforms, type ModelLibrary } from '../render/models';
 import { WorldView } from '../render/worldView';
 import { DT, Simulation } from '../sim/simulation';
-import { SPECIES, type Species } from '../sim/species';
+import { CLASSIC_SPECIES, SPECIES, type Species } from '../sim/species';
 import { generateWorld } from '../world/generator';
 import { Tile, tileIndex, inBounds, type World } from '../world/types';
 import { Player } from './player';
@@ -64,6 +64,11 @@ export class Game {
   tilt = THREE.MathUtils.degToRad(30);
   fps = 0;
   followId: string | null = null;
+  /**
+   * 'extended' (default): all species. 'classic': slime / deer / wolf only, which replays
+   * pre-Phase-2B worlds exactly (same fingerprint). Set from ?ecosystem=classic.
+   */
+  ecosystem: 'extended' | 'classic' = 'extended';
 
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
@@ -142,7 +147,7 @@ export class Game {
     this.seed = seed;
     this.unsubscribe?.();
     this.world = generateWorld(seed);
-    this.sim = new Simulation(this.world);
+    this.sim = new Simulation(this.world, this.ecosystem === 'classic' ? { roster: CLASSIC_SPECIES } : {});
     this.playerRng = Rng.stream(seed, 'player');
     this.combatRng = Rng.stream(seed, 'combat');
     this.arsenal.resetWorld();

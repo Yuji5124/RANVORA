@@ -9,7 +9,15 @@ import { Rng, hashInts } from '../core/rng';
 import type { MaterialId } from '../items/materials';
 import { MATERIALS } from '../items/materials';
 import { Tile, type World, canStand, isTileWalkable, tileIndex, inBounds, type Point } from '../world/types';
-import { SPECIES, SPECIES_IDS, STATE_LABELS, type CreatureState, type Species } from './species';
+import { CLASSIC_SPECIES, isPredatorOf, SPECIES, SPECIES_IDS, STATE_LABELS, type CreatureState, type Habitat, type Species } from './species';
+
+export interface SimulationOptions {
+  /**
+   * Species living in this world. Default: all species.
+   * CLASSIC_SPECIES (slime, deer, wolf) replays the pre-Phase-2B history exactly.
+   */
+  roster?: Species[];
+}
 
 export const DT = 0.1;
 export const DAY_LENGTH = 240;
@@ -60,6 +68,8 @@ export interface Creature {
   alive: boolean;
   /** Short-lived flash when hit (render only). */
   hitTime: number;
+  /** Sim time of this creature's last strike (predation, bite). Read by the renderer only. */
+  attackTime: number;
 }
 
 export interface Plant {
@@ -86,6 +96,8 @@ export interface PopSample {
   deer: number;
   wolf: number;
   plants: number;
+  /** Every species in the roster (slime/deer/wolf above are kept for older readers). */
+  bySpecies: Partial<Record<Species, number>>;
 }
 
 export class Simulation {
@@ -103,20 +115,27 @@ export class Simulation {
   /** Hits on the player produced this tick, consumed by the game. */
   playerHits: { by: string; dmg: number }[] = [];
   readonly popHistory: PopSample[] = [];
+  /** Species living in this world, in spawn order. */
+  readonly roster: Species[];
 
   private rng: Rng;
   private plantRng: Rng;
   private pickupRng: Rng;
   private dropRng: Rng;
-  private seq: Record<Species, number> = { slime: 0, deer: 0, wolf: 0 };
+  private seq = Object.fromEntries(SPECIES_IDS.map((s) => [s, 0])) as Record<Species, number>;
   private pickupSeq = 0;
-  private lastPop: Record<Species, number> = { slime: 0, deer: 0, wolf: 0 };
-  private lastPopEvent: Record<Species, number> = { slime: -999, deer: -999, wolf: -999 };
+  private lastPop = Object.fromEntries(SPECIES_IDS.map((s) => [s, 0])) as Record<Species, number>;
+  private lastPopEvent = Object.fromEntries(SPECIES_IDS.map((s) => [s, -999])) as Record<Species, number>;
+  /** Tiles near each habitat kind (computed once per world). */
+  private habitatDist = new Map<Habitat, Uint8Array>();
   private plantStats = { spread: 0, withered: 0 };
   private wasNight = false;
 
-  constructor(world: World) {
+  constructor(world: World, opts: SimulationOptions = {}) {
     this.world = world;
+    // Keep the canonical order (slime, deer, wolf, then newer species): it is the spawn order.
+    const want = opts.roster ?? SPECIES_IDS;
+    this.roster = SPECIES_IDS.filter((s) => want.includes(s));
     this.seed = world.seed;
     this.rng = Rng.stream(world.seed, 'sim');
     this.plantRng = Rng.stream(world.seed, 'plants');
@@ -126,11 +145,12 @@ export class Simulation {
     this.initPlants();
     this.initCreatures();
     this.initPickups();
-    for (const s of SPECIES_IDS) this.lastPop[s] = this.count(s);
+    for (const s of this.roster) this.lastPop[s] = this.count(s);
+    const extra = this.roster.filter((s) => !CLASSIC_SPECIES.includes(s)).map((s) => `・${SPECIES[s].name}${this.count(s)}`).join('');
     this.events.push({
       t: 0,
       type: 'world_generated',
-      message: `世界が生まれた（シード ${world.seed}）。スライム${this.count('slime')}・シカ${this.count('deer')}・オオカミ${this.count('wolf')}、植物${this.plants.length}株。`,
+      message: `世界が生まれた（シード ${world.seed}）。スライム${this.count('slime')}・シカ${this.count('deer')}・オオカミ${this.count('wolf')}${extra}、植物${this.plants.length}株。`,
     });
   }
 
@@ -183,18 +203,19 @@ export class Simulation {
   private initCreatures() {
     const w = this.world;
     const vc = w.village;
-    for (const s of SPECIES_IDS) {
+    for (const s of this.roster) {
       const def = SPECIES[s];
-      // Deer start in herds, wolves in one pack, slimes scattered.
-      const groupSize = s === 'deer' ? 4 : s === 'wolf' ? def.initial : 1;
+      // Groups from data: deer herds of 4, one wolf pack, slimes scattered...
+      const groupSize = def.groupSize === 'all' ? def.initial : def.groupSize;
+      const home = (tx: number, tz: number) => !def.habitat || this.nearHabitat(def.habitat, tx, tz, def.habitatRange ?? 3);
       let anchor: Point | null = null;
       for (let i = 0; i < def.initial; i++) {
-        const minVillage = s === 'wolf' ? 22 : 10;
+        const minVillage = def.spawnMinVillageDist;
         if (i % groupSize === 0) anchor = null;
         const near = anchor as Point | null;
         const p: Point | null =
-          (near && this.randomReachableTile(this.rng, (tx, tz) => Math.hypot(tx - near.x, tz - near.z) < 4)) ||
-          this.randomReachableTile(this.rng, (tx, tz) => Math.hypot(tx - vc.cx, tz - vc.cz) > minVillage);
+          (near && this.randomReachableTile(this.rng, (tx, tz) => Math.hypot(tx - near.x, tz - near.z) < 4 && home(tx, tz))) ||
+          this.randomReachableTile(this.rng, (tx, tz) => Math.hypot(tx - vc.cx, tz - vc.cz) > minVillage && home(tx, tz));
         if (!p) continue;
         if (!anchor) anchor = p;
         const c = this.spawnCreature(s, p.x, p.z, null);
@@ -249,6 +270,55 @@ export class Simulation {
     let n = 0;
     for (const p of this.plants) if (p.alive) n++;
     return n;
+  }
+
+  /** True when (tx, tz) is within `range` tiles of the habitat (forest / water / rocks). Read-only query. */
+  nearHabitat(h: Habitat, tx: number, tz: number, range: number): boolean {
+    let field = this.habitatDist.get(h);
+    if (!field) {
+      field = this.buildHabitatField(h);
+      this.habitatDist.set(h, field);
+    }
+    if (!inBounds(this.world, tx, tz)) return false;
+    return field[tileIndex(this.world, tx, tz)] <= range;
+  }
+
+  /** Chebyshev distance (capped at 255) from every tile to the nearest tile of the habitat. No randomness. */
+  private buildHabitatField(h: Habitat): Uint8Array {
+    const w = this.world;
+    const n = w.width * w.height;
+    const dist = new Uint8Array(n).fill(255);
+    const queue: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const t = w.tiles[i];
+      const s = w.solidAt[i];
+      const kind = s >= 0 ? w.objects[s].kind : null;
+      const hit =
+        h === 'forest' ? t === Tile.FOREST || kind === 'tree' || kind === 'pine'
+        : h === 'water' ? t === Tile.WATER || t === Tile.BRIDGE
+        : t === Tile.CLIFF || t === Tile.CAVE || kind === 'rock' || kind === 'ore';
+      if (hit) {
+        dist[i] = 0;
+        queue.push(i);
+      }
+    }
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q];
+      const x = i % w.width;
+      const z = (i - x) / w.width;
+      for (let dz = -1; dz <= 1; dz++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const nz = z + dz;
+          if (!inBounds(w, nx, nz)) continue;
+          const j = nz * w.width + nx;
+          if (dist[j] > dist[i] + 1) {
+            dist[j] = Math.min(254, dist[i] + 1);
+            queue.push(j);
+          }
+        }
+    }
+    return dist;
   }
 
   private inVillage(x: number, z: number, extra = 0) {
@@ -316,6 +386,7 @@ export class Simulation {
       meals: 0,
       alive: true,
       hitTime: -10,
+      attackTime: -10,
     };
     this.creatures.push(c);
     if (parents && variant && !parents[0].variant) {
@@ -386,10 +457,11 @@ export class Simulation {
 
   private pickWanderTarget(c: Creature, radius: number) {
     const w = this.world;
-    // Deer and wolves drift towards their own kind (herds / packs).
+    // Herding species drift towards their own kind (herds / packs).
+    const def = SPECIES[c.species];
     let bx = c.x;
     let bz = c.z;
-    if (c.species !== 'slime') {
+    if (def.herds) {
       let best: Creature | null = null;
       let bestD = this.visionOf(c) * 2;
       for (const o of this.creatures) {
@@ -409,7 +481,8 @@ export class Simulation {
       const tx = Math.floor(bx + this.rng.range(-radius, radius));
       const tz = Math.floor(bz + this.rng.range(-radius, radius));
       if (!isTileWalkable(w, tx, tz)) continue;
-      if (c.species === 'wolf' && this.inVillage(tx, tz, 2)) continue;
+      if (def.avoidsVillage && this.inVillage(tx, tz, 2)) continue;
+      if (def.habitat && !this.nearHabitat(def.habitat, tx, tz, def.habitatRange ?? 3)) continue;
       c.tx = tx + 0.5;
       c.tz = tz + 0.5;
       return;
@@ -447,7 +520,7 @@ export class Simulation {
   }
 
   private visionOf(c: Creature) {
-    const night = this.isNight && c.species !== 'wolf' ? 0.75 : 1;
+    const night = this.isNight && !SPECIES[c.species].nocturnal ? 0.75 : 1;
     return SPECIES[c.species].vision * c.visionTrait * night;
   }
 
@@ -460,40 +533,46 @@ export class Simulation {
 
   /** Nearest threat to a creature (predator or player), with distance. */
   private nearestThreat(c: Creature): { x: number; z: number; d: number; id: string } | null {
+    const def = SPECIES[c.species];
     const vision = this.visionOf(c);
     let best: { x: number; z: number; d: number; id: string } | null = null;
-    if (c.species !== 'wolf') {
+    if (this.hunted(c.species)) {
       for (const o of this.creatures) {
-        if (!o.alive || o.species !== 'wolf') continue;
-        // Wolves that just ate are not scary to slimes.
+        if (!o.alive || !isPredatorOf(o.species, c.species)) continue;
         const d = Math.hypot(o.x - c.x, o.z - c.z);
-        // A sprinting wolf is noticed from afar, a stalking one only up close.
+        // A sprinting predator is noticed from afar, a stalking one only up close.
         const chasing = o.state === 'chase';
         const stalking = o.state === 'hunt';
-        if (c.species === 'slime' && !(chasing && o.targetId === c.id) && d > 1.5) continue;
-        if (c.species === 'deer' && !chasing && !(stalking && d < 3.5) && d > 2.5) continue;
+        if (def.wariness === 'oblivious' && !(chasing && o.targetId === c.id) && d > 1.5) continue;
+        if (def.wariness === 'alert' && !chasing && !(stalking && d < 3.5) && d > 2.5) continue;
         if (d < vision && (!best || d < best.d)) best = { x: o.x, z: o.z, d, id: o.id };
       }
     }
     if (this.player) {
-      const range = c.species === 'slime' ? vision * 0.7 : c.species === 'deer' ? 3.5 : 0;
+      const range = def.playerFearVisionMul !== undefined ? vision * def.playerFearVisionMul : def.playerFearRange;
       const d = Math.hypot(this.player.x - c.x, this.player.z - c.z);
       if (d < range && (!best || d < best.d)) best = { x: this.player.x, z: this.player.z, d, id: 'PLAYER' };
     }
     return best;
   }
 
+  /** Is anything in this world a predator of `s`? (Cached per roster.) */
+  private hunted(s: Species): boolean {
+    return this.roster.some((p) => isPredatorOf(p, s));
+  }
+
   private findPrey(c: Creature, desperate: boolean): Creature | null {
+    const def = SPECIES[c.species];
     const vision = this.visionOf(c);
     let best: Creature | null = null;
     let bestD = Infinity;
     for (const o of this.creatures) {
       if (!o.alive || o === c) continue;
-      if (o.species === 'deer' || (desperate && o.species === 'slime')) {
+      if (def.prey.includes(o.species) || (desperate && def.preyDesperate.includes(o.species))) {
         if (c.hunger < 90 && this.inVillage(o.x, o.z, 1)) continue;
         const d = Math.hypot(o.x - c.x, o.z - c.z);
-        // Prefer deer when both are visible.
-        const score = d + (o.species === 'slime' ? 3 : 0);
+        // Preferred prey first when several are visible.
+        const score = d + (def.preyBias[o.species] ?? 0);
         if (d < vision && score < bestD) {
           bestD = score;
           best = o;
@@ -508,11 +587,13 @@ export class Simulation {
     const w = this.world;
     let best = null as { x: number; z: number; food: number } | null;
     let scented = false;
-    if (c.species === 'wolf') {
-      // Wolves follow the scent of the nearest deer, even out of sight.
+    const def = SPECIES[c.species];
+    const predator = def.role === 'predator';
+    if (predator) {
+      // Predators follow the scent of the nearest prey, even out of sight.
       let bestD = 40;
       for (const o of this.creatures) {
-        if (!o.alive || o.species !== 'deer' || this.inVillage(o.x, o.z, 2)) continue;
+        if (!o.alive || !def.prey.includes(o.species) || this.inVillage(o.x, o.z, 2)) continue;
         const d = Math.hypot(o.x - c.x, o.z - c.z);
         if (d < bestD) {
           bestD = d;
@@ -527,8 +608,9 @@ export class Simulation {
       const tx = Math.floor(c.x + Math.cos(a) * d);
       const tz = Math.floor(c.z + Math.sin(a) * d);
       if (!inBounds(w, tx, tz) || !isTileWalkable(w, tx, tz) || !w.reachable[tileIndex(w, tx, tz)]) continue;
-      if (c.species === 'wolf' && this.inVillage(tx, tz, 3)) continue;
-      const food = c.species === 'wolf' ? this.preyNear(tx, tz, 8) : this.foodNear(c, tx, tz, 5);
+      if (def.avoidsVillage && this.inVillage(tx, tz, 3)) continue;
+      if (def.habitat && !this.nearHabitat(def.habitat, tx, tz, (def.habitatRange ?? 3) + 1)) continue;
+      const food = predator ? this.preyNear(c, tx, tz, 8) : this.foodNear(c, tx, tz, 5);
       const cur = best as { food: number } | null;
       if (!cur || food > cur.food) best = { x: tx, z: tz, food };
     }
@@ -545,7 +627,7 @@ export class Simulation {
     c.noFoodTime = 0;
     this.log(
       'migration',
-      `${c.id}（${SPECIES[c.species].name}）が${c.species === 'wolf' ? '獲物' : '食料'}不足のため移住を始めた（${path.length}歩先へ）`,
+      `${c.id}（${SPECIES[c.species].name}）が${predator ? '獲物' : '食料'}不足のため移住を始めた（${path.length}歩先へ）`,
       { actor: c.id, x: c.x, z: c.z, data: { toX: best.x, toZ: best.z, food: best.food } },
     );
     return true;
@@ -564,9 +646,10 @@ export class Simulation {
     return n;
   }
 
-  private preyNear(tx: number, tz: number, r: number): number {
+  private preyNear(c: Creature, tx: number, tz: number, r: number): number {
+    const prey = SPECIES[c.species].prey;
     let n = 0;
-    for (const o of this.creatures) if (o.alive && o.species === 'deer' && Math.hypot(o.x - tx, o.z - tz) < r) n++;
+    for (const o of this.creatures) if (o.alive && prey.includes(o.species) && Math.hypot(o.x - tx, o.z - tz) < r) n++;
     return n;
   }
 
@@ -580,12 +663,11 @@ export class Simulation {
   private tryReproduce(c: Creature) {
     const def = SPECIES[c.species];
     if (c.reproCooldown > 0 || this.count(c.species) >= def.popCap) return;
-    if (c.species === 'slime') {
+    if (def.splits) {
       if (c.mass >= 2) this.splitSlime(c);
       return;
     }
-    const minAge = c.species === 'deer' ? 60 : 120;
-    const maxHunger = c.species === 'deer' ? 35 : 40;
+    const { minAge, maxHunger } = def.breed;
     if (c.age < minAge || c.hunger > maxHunger || c.fear > 10) return;
     const mate = this.creatures.find(
       (o) =>
@@ -605,7 +687,7 @@ export class Simulation {
       child.px = c.x;
       child.pz = c.z;
     }
-    const cd = c.species === 'deer' ? 90 : 200;
+    const cd = def.breed.cooldown;
     c.reproCooldown = cd;
     mate.reproCooldown = cd;
     c.hunger += 20;
@@ -647,7 +729,7 @@ export class Simulation {
     c.age += DT;
     c.stateTime += DT;
     c.reproCooldown -= DT;
-    const nightMul = c.species === 'wolf' && this.isNight ? 1.3 : 1;
+    const nightMul = def.nocturnal && this.isNight ? 1.3 : 1;
     const restMul = c.state === 'rest' ? 0.5 : 1;
     c.hunger = Math.min(100, c.hunger + def.hungerRate * nightMul * restMul * DT * (c.giant ? 1.3 : 1));
     if (c.scale < 1 && !c.giant && c.mass < 1.5) c.scale = Math.min(1, c.scale + DT * 0.004);
@@ -658,7 +740,7 @@ export class Simulation {
       return;
     }
     if (c.hunger >= 100) {
-      c.hp -= (c.species === 'wolf' ? 0.1 : 0.22) * DT;
+      c.hp -= def.starveDamage * DT;
       if (c.hp <= 0) {
         this.kill(c, 'death_starvation', `${c.id}（${def.name}）が飢えで倒れた`);
         return;
@@ -673,10 +755,10 @@ export class Simulation {
     if (threat) c.fear = Math.min(100, c.fear + 80 * DT * (1 - threat.d / (this.visionOf(c) + 0.01)) + 10 * DT);
     else c.fear = Math.max(0, c.fear - 12 * DT);
 
-    if (c.species !== 'wolf' && threat && c.fear > 30) {
+    if (def.role !== 'predator' && threat && c.fear > 30) {
       this.doFlee(c, threat);
-    } else if (c.species === 'wolf') {
-      this.thinkWolf(c);
+    } else if (def.role === 'predator') {
+      this.thinkPredator(c);
     } else {
       this.thinkGrazer(c);
     }
@@ -693,8 +775,8 @@ export class Simulation {
     const l = Math.hypot(ax, az) || 1;
     ax /= l;
     az /= l;
-    // Deer run towards the village when it is close: wolves avoid it.
-    if (c.species === 'deer') {
+    // Some grazers (deer) run towards the village when it is close: predators avoid it.
+    if (SPECIES[c.species].fleesToVillage) {
       const v = this.world.village;
       const vx = v.cx + 0.5 - c.x;
       const vz = v.cz + 0.5 - c.z;
@@ -743,8 +825,8 @@ export class Simulation {
       }
       const bite = Math.min(p.biomass, 0.22 * DT);
       p.biomass -= bite;
-      c.hunger = Math.max(0, c.hunger - bite * (c.species === 'slime' ? 120 : 95));
-      if (c.species === 'slime') {
+      c.hunger = Math.max(0, c.hunger - bite * def.biteFill);
+      if (def.splits) {
         const giants = this.creatures.filter((o) => o.alive && o.giant).length;
         c.mass = Math.min(giants >= 2 && !c.giant ? 2.9 : 4, c.mass + bite * 0.75);
         if (c.mass > 1) c.scale = Math.min(c.giant ? 1.9 : 1.35, 0.8 + c.mass * 0.25);
@@ -787,14 +869,14 @@ export class Simulation {
         }
       } else {
         c.noFoodTime += DT;
-        if (c.noFoodTime > (c.species === 'slime' ? 10 : 6) && this.startMigration(c)) return;
+        if (c.noFoodTime > def.migrateAfter && this.startMigration(c)) return;
         if (this.steer(c, c.tx, c.tz, this.speedOf(c, false)) || c.stuck > 1) this.pickWanderTarget(c, 6);
       }
       if (c.hunger < 30 && c.state === 'seek_food') this.setState(c, 'wander');
       return;
     }
-    // Deer look for a safe spot to rest when fed and calm.
-    if (c.species === 'deer' && c.hunger < 35 && c.fear < 3 && c.state === 'wander' && c.stateTime > 12 && this.rng.chance(0.02)) {
+    // Some grazers (deer) look for a safe spot to rest when fed and calm.
+    if (def.restsWhenFed && c.hunger < 35 && c.fear < 3 && c.state === 'wander' && c.stateTime > 12 && this.rng.chance(0.02)) {
       this.setState(c, 'rest');
       c.restUntil = this.rng.range(10, 22);
       return;
@@ -807,11 +889,13 @@ export class Simulation {
     if (c.state !== 'wander') this.setState(c, 'wander');
     if (this.steer(c, c.tx, c.tz, this.speedOf(c, false) * 0.7) || c.stuck > 1) {
       if (this.rng.chance(0.35)) this.setState(c, 'idle');
-      this.pickWanderTarget(c, def.id === 'slime' ? 3 : 6);
+      this.pickWanderTarget(c, def.wanderRadius);
     }
   }
 
-  private thinkWolf(c: Creature) {
+  /** Predators (wolf, hornfang): rest, eat, hunt, chase, migrate. Prey lists come from species data. */
+  private thinkPredator(c: Creature) {
+    const def = SPECIES[c.species];
     if (c.state === 'rest') {
       if (c.stateTime > c.restUntil || c.hunger > 70) this.setState(c, 'wander');
       return;
@@ -823,15 +907,15 @@ export class Simulation {
       }
       return;
     }
-    // Wolves avoid the village unless starving.
-    if (c.hunger < 90 && this.inVillage(c.x, c.z, 1)) {
+    // Predators avoid the village unless starving.
+    if (def.avoidsVillage && c.hunger < 90 && this.inVillage(c.x, c.z, 1)) {
       const v = this.world.village;
       const ax = c.x - (v.cx + 0.5);
       const az = c.z - (v.cz + 0.5);
       const l = Math.hypot(ax, az) || 1;
       this.steer(c, c.x + (ax / l) * 3, c.z + (az / l) * 3, this.speedOf(c, false));
       if (c.state === 'chase' && c.targetId) {
-        this.log('hunt_fail', `${c.targetId} は村に逃げ込み、${c.id}（オオカミ）は狩りを諦めた`, {
+        this.log('hunt_fail', `${c.targetId} は村に逃げ込み、${c.id}（${def.name}）は狩りを諦めた`, {
           actor: c.id,
           target: c.targetId,
           x: c.x,
@@ -859,7 +943,7 @@ export class Simulation {
           c.targetId = prey.id;
           this.log(
             'hunt_start',
-            `${c.id}（オオカミ）が ${prey.id}（${SPECIES[prey.species].name}）に狙いを定めた`,
+            `${c.id}（${def.name}）が ${prey.id}（${SPECIES[prey.species].name}）に狙いを定めた`,
             { actor: c.id, target: prey.id, x: c.x, z: c.z },
           );
         }
@@ -887,7 +971,7 @@ export class Simulation {
           c.running = true;
           c.stamina = Math.max(0, c.stamina - 14 * DT);
         } else if (c.stateTime > 4) {
-          this.log('hunt_fail', `${c.id}（オオカミ）は息切れし、${prey.id} を取り逃がした`, {
+          this.log('hunt_fail', `${c.id}（${def.name}）は息切れし、${prey.id} を取り逃がした`, {
             actor: c.id,
             target: prey.id,
             x: c.x,
@@ -900,15 +984,17 @@ export class Simulation {
           return;
         }
         if (d < 0.6 * c.scale + 0.2) {
-          const isSlime = prey.species === 'slime';
+          // A meal outside the normal prey list (e.g. a starving wolf eating a slime).
+          const isDesperate = !def.prey.includes(prey.species);
+          c.attackTime = this.time;
           this.kill(
             prey,
             'death_predation',
-            `${c.id}（オオカミ）が ${prey.id}（${SPECIES[prey.species].name}）を捕食した`,
+            `${c.id}（${def.name}）が ${prey.id}（${SPECIES[prey.species].name}）を捕食した`,
             c.id,
           );
-          if (isSlime) {
-            this.log('desperate_hunt', `飢えた ${c.id} が本来は食べないスライム ${prey.id} を食べた`, {
+          if (isDesperate) {
+            this.log('desperate_hunt', `飢えた ${c.id} が本来は食べない${SPECIES[prey.species].name} ${prey.id} を食べた`, {
               actor: c.id,
               target: prey.id,
               x: c.x,
@@ -916,7 +1002,7 @@ export class Simulation {
               rare: true,
             });
           }
-          c.hunger = Math.max(0, c.hunger - (isSlime ? 30 : 80));
+          c.hunger = Math.max(0, c.hunger - (isDesperate ? def.desperateFill : def.preyFill));
           c.kills++;
           c.meals++;
           c.targetId = null;
@@ -929,11 +1015,12 @@ export class Simulation {
       c.noFoodTime += DT;
       if (c.noFoodTime > 8 && this.startMigration(c)) return;
       if (this.steer(c, c.tx, c.tz, this.speedOf(c, false)) || c.stuck > 1) this.pickWanderTarget(c, 8);
-      // Starving wolves may approach the player.
-      if (desperate && this.player && Math.hypot(this.player.x - c.x, this.player.z - c.z) < 6) {
+      // Starving predators may approach the player.
+      if (def.bitesPlayerWhenStarving && desperate && this.player && Math.hypot(this.player.x - c.x, this.player.z - c.z) < 6) {
         this.steer(c, this.player.x, this.player.z, this.speedOf(c, false));
         if (Math.hypot(this.player.x - c.x, this.player.z - c.z) < 0.8 && c.stateTime % 1.2 < DT) {
           this.playerHits.push({ by: c.id, dmg: 1 });
+          c.attackTime = this.time;
           this.log('player_attacked', `飢えた ${c.id} が主人公に噛みついた！`, { actor: c.id, target: 'PLAYER', x: c.x, z: c.z });
         }
       }
@@ -1044,17 +1131,20 @@ export class Simulation {
     }
     // Every 10 s: population sample & boom / crash detection.
     if (this.tick % 100 === 0) {
+      const bySpecies: Partial<Record<Species, number>> = {};
+      for (const s of this.roster) bySpecies[s] = this.count(s);
       const sample: PopSample = {
         t: Math.round(this.time),
         slime: this.count('slime'),
         deer: this.count('deer'),
         wolf: this.count('wolf'),
         plants: this.aliveplants(),
+        bySpecies,
       };
       this.popHistory.push(sample);
       if (this.popHistory.length > 720) this.popHistory.shift();
-      for (const s of SPECIES_IDS) {
-        const now = sample[s];
+      for (const s of this.roster) {
+        const now = bySpecies[s] ?? 0;
         const prev = this.lastPop[s];
         const cooldownOk = this.time - this.lastPopEvent[s] > 120;
         if (cooldownOk && now >= 6 && now >= prev * 1.5) {
@@ -1081,7 +1171,7 @@ export class Simulation {
     if (this.tick % 150 === 0 && this.tick > 0) this.spawnPickupCycle();
     // Immigration: a species that vanished may return from the edge of the map.
     if (this.tick % 300 === 0 && this.tick > 0) {
-      for (const s of SPECIES_IDS) {
+      for (const s of this.roster) {
         if (this.count(s) > 0) continue;
         const ext = [...this.events.events].reverse().find((e) => e.type === 'extinction' && e.data?.species === s);
         if (!ext || this.time - ext.t < 150 || !this.rng.chance(0.5)) continue;
@@ -1092,16 +1182,18 @@ export class Simulation {
 
   private immigrate(s: Species) {
     const w = this.world;
-    const edge = this.randomReachableTile(this.rng, (tx, tz) => tx < 5 || tz < 5 || tx > w.width - 6 || tz > w.height - 6);
+    const def = SPECIES[s];
+    const home = (tx: number, tz: number) => !def.habitat || this.nearHabitat(def.habitat, tx, tz, (def.habitatRange ?? 3) + 3);
+    const edge = this.randomReachableTile(this.rng, (tx, tz) => (tx < 5 || tz < 5 || tx > w.width - 6 || tz > w.height - 6) && home(tx, tz));
     if (!edge) return;
-    const n = s === 'wolf' ? 2 : 3;
+    const n = def.immigrantGroup;
     const ids: string[] = [];
     for (let i = 0; i < n; i++) {
       const c = this.spawnCreature(s, edge.x, edge.z, null);
       c.age = SPECIES[s].lifespan * 0.2;
       ids.push(c.id);
     }
-    this.log('migration', `${SPECIES[s].name}の群れ（${ids.join(', ')}）が森の外からやってきた`, {
+    this.log('migration', ids.length > 1 ? `${SPECIES[s].name}の群れ（${ids.join(', ')}）が森の外からやってきた` : `はぐれた${SPECIES[s].name}（${ids[0]}）が森の外からやってきた`, {
       actor: ids[0],
       x: edge.x,
       z: edge.z,
@@ -1153,6 +1245,12 @@ export class Simulation {
     if (c.species === 'slime' && c.giant) drops.push('slime_core', 'crystal');
     if (c.species === 'deer' && this.dropRng.chance(0.6)) drops.push('wind_feather');
     if (c.species === 'wolf') drops.push(this.dropRng.chance(0.5) ? 'fire_stone' : 'crystal');
+    // Newer species: data-driven drops (two draws per entry, in table order).
+    for (const e of SPECIES[c.species].drops ?? []) {
+      const hit = this.dropRng.next() < e.chance;
+      const n = e.min + Math.floor(this.dropRng.next() * (e.max - e.min + 1));
+      if (hit) for (let i = 0; i < n; i++) drops.push(e.id);
+    }
     return drops;
   }
 

@@ -1,4 +1,5 @@
 import type { Game } from '../game/game';
+import { SPECIES } from '../sim/species';
 import { Tile } from '../world/types';
 
 const COLORS: Record<number, string> = {
@@ -64,7 +65,7 @@ export class Minimap {
     g.fillRect(0, 0, W, W);
     for (const c of game.sim.creatures) {
       if (!c.alive) continue;
-      g.fillStyle = c.species === 'slime' ? '#5fd0ff' : c.species === 'deer' ? '#ffb35c' : '#ff4a4a';
+      g.fillStyle = SPECIES[c.species].model.minimapColor;
       g.fillRect(c.x * s - 1.5, c.z * s - 1.5, 3, 3);
     }
     for (const o of w.objects) {
